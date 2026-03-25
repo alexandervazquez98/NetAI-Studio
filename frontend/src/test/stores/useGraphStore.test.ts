@@ -52,4 +52,37 @@ describe('useGraphStore', () => {
     expect(useGraphStore.getState().nodes).toHaveLength(1)
     expect(useGraphStore.getState().edges).toHaveLength(1)
   })
+
+  // TASK 1.1 RED — updateEdge
+  it('updateEdge changes the type of an existing edge', () => {
+    const edge = { id: 'e1', source: 'n1', target: 'n2', type: 'fiber', data: {} }
+    act(() => {
+      useGraphStore.setState({ edges: [edge as any] })
+      useGraphStore.getState().updateEdge('e1', { type: 'aviat' })
+    })
+    const updated = useGraphStore.getState().edges[0]
+    expect(updated.type).toBe('aviat')
+    expect(updated.id).toBe('e1')
+  })
+
+  it('updateEdge merges data without replacing the whole edge', () => {
+    const edge = { id: 'e2', source: 'n1', target: 'n2', type: 'mpls', data: { vrf: 'RED' } }
+    act(() => {
+      useGraphStore.setState({ edges: [edge as any] })
+      useGraphStore.getState().updateEdge('e2', { data: { vrf: 'BLUE' } })
+    })
+    const updated = useGraphStore.getState().edges[0]
+    expect(updated.type).toBe('mpls')
+    expect(updated.data?.vrf).toBe('BLUE')
+  })
+
+  it('updateEdge does not mutate other edges', () => {
+    const e1 = { id: 'e1', source: 'n1', target: 'n2', type: 'fiber', data: {} }
+    const e2 = { id: 'e2', source: 'n2', target: 'n3', type: 'mpls', data: {} }
+    act(() => {
+      useGraphStore.setState({ edges: [e1 as any, e2 as any] })
+      useGraphStore.getState().updateEdge('e1', { type: 'aviat' })
+    })
+    expect(useGraphStore.getState().edges[1].type).toBe('mpls')
+  })
 })

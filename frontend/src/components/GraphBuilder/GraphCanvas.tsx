@@ -1,10 +1,9 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
   Controls,
   MiniMap,
-  ReactFlowProvider,
   ConnectionMode,
   useReactFlow,
 } from 'reactflow';
@@ -12,7 +11,7 @@ import type { NodeTypes, EdgeTypes } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import { useGraphStore } from '../../hooks/useGraphStore';
-import { saveGraph } from '../../api/graph';
+import { getGraph, saveGraph, exportGraph } from '../../api/graph';
 
 import { CoreInternalNode } from './nodes/CoreInternalNode';
 import { CoreExternalNode } from './nodes/CoreExternalNode';
@@ -24,10 +23,12 @@ import { SiteGroup } from './SiteGroup';
 import { FiberEdge } from './edges/FiberEdge';
 import { MplsEdge } from './edges/MplsEdge';
 import { SdwanEdge } from './edges/SdwanEdge';
+import { AviatEdge } from './edges/AviatEdge';
 
 import { ValidationModal } from './ValidationModal';
 import type { ValidationResult } from './ValidationModal';
 import type { NodeData } from '../../types/nodeData';
+import { runValidation } from './validation';
 
 // ── Custom node/edge type registries ─────────────────────────────────────────
 
@@ -44,111 +45,67 @@ const edgeTypes: EdgeTypes = {
   fiber: FiberEdge,
   mpls: MplsEdge,
   sdwan: SdwanEdge,
+  aviat: AviatEdge,
 };
-
-// ── Validation logic ─────────────────────────────────────────────────────────
-
-function runValidation(
-  nodes: ReturnType<typeof useGraphStore.getState>['nodes'],
-  edges: ReturnType<typeof useGraphStore.getState>['edges'],
-): ValidationResult[] {
-  const results: ValidationResult[] = [];
-
-  // Group nodes by their parentNode (site group id)
-  const childrenBySite = new Map<string, typeof nodes>();
-  const siteGroupIds = new Set(nodes.filter((n) => n.type === 'siteGroup').map((n) => n.id));
-
-  for (const node of nodes) {
-    const parent = (node as any).parentNode as string | undefined;
-    if (parent && siteGroupIds.has(parent)) {
-      const list = childrenBySite.get(parent) ?? [];
-      list.push(node);
-      childrenBySite.set(parent, list);
-    }
-  }
-
-  // Rule 1: Each site group must have at least 1 CoreInternal and 1 CoreExternal
-  for (const siteId of siteGroupIds) {
-    const siteNode = nodes.find((n) => n.id === siteId);
-    const children = childrenBySite.get(siteId) ?? [];
-    const hasInternal = children.some((n) => n.type === 'coreInternal');
-    const hasExternal = children.some((n) => n.type === 'coreExternal');
-
-    if (!hasInternal || !hasExternal) {
-      results.push({
-        rule: 'Composición de sede',
-        status: 'fail',
-        message: `La sede "${siteNode?.data?.label ?? siteId}" debe contener al menos un Core Interno y un Core Externo.`,
-        affected: [siteId],
-      });
-    } else {
-      results.push({
-        rule: 'Composición de sede',
-        status: 'pass',
-        message: `La sede "${siteNode?.data?.label ?? siteId}" tiene Core Interno y Core Externo.`,
-        affected: [siteId],
-      });
-    }
-  }
-
-  // Rule 2: Each AviatCTR must have at least one connected edge
-  const aviatNodes = nodes.filter((n) => n.type === 'aviatCTR');
-  for (const aviat of aviatNodes) {
-    const connected = edges.some((e) => e.source === aviat.id || e.target === aviat.id);
-    results.push({
-      rule: 'Aviat CTR conectado',
-      status: connected ? 'pass' : 'fail',
-      message: connected
-        ? `Nodo Aviat CTR "${aviat.data?.label ?? aviat.id}" está conectado.`
-        : `Nodo Aviat CTR "${aviat.data?.label ?? aviat.id}" no tiene conexiones.`,
-      affected: [aviat.id],
-    });
-  }
-
-  // Rule 3: SdwanCPE nodes must not have observable: true
-  const sdwanNodes = nodes.filter((n) => n.type === 'sdwanCPE');
-  for (const cpe of sdwanNodes) {
-    const nodeData = cpe.data as NodeData;
-    if (nodeData.observable === true) {
-      results.push({
-        rule: 'SD-WAN CPE no observable',
-        status: 'warn',
-        message: `Nodo SD-WAN CPE "${nodeData.label ?? cpe.id}" tiene observable=true. Debería ser caja negra.`,
-        affected: [cpe.id],
-      });
-    } else {
-      results.push({
-        rule: 'SD-WAN CPE no observable',
-        status: 'pass',
-        message: `Nodo SD-WAN CPE "${nodeData.label ?? cpe.id}" correctamente marcado como caja negra.`,
-        affected: [cpe.id],
-      });
-    }
-  }
-
-  // If no site groups at all, add info
-  if (siteGroupIds.size === 0) {
-    results.push({
-      rule: 'Composición de sede',
-      status: 'warn',
-      message: 'No hay grupos de sede en el canvas.',
-    });
-  }
-
-  return results;
-}
 
 // ── Inner canvas (needs ReactFlowProvider context) ────────────────────────────
 
 const GraphCanvasInternal: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, selectNode, selectEdge } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, selectNode, selectEdge, setGraph } =
     useGraphStore();
   const { screenToFlowPosition } = useReactFlow();
+
 
   const [validationResults, setValidationResults] = useState<ValidationResult[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [mcpJson, setMcpJson] = useState<string | null>(null);
+
+  // ── Load topology from backend on mount ───────────────────────────────────
+
+
+  useEffect(() => {
+    getGraph().then((data) => {
+      const siteGroupNodes = data.sites.map((s) => ({
+        id: s.id,
+        type: 'siteGroup' as const,
+        position: { x: s.canvas_x ?? 0, y: s.canvas_y ?? 0 },
+        style: { width: s.canvas_w ?? 400, height: s.canvas_h ?? 300 },
+        data: {
+          label: s.name,
+          role: s.role,
+          wan_type: s.wan_type,
+          observable_boundary: s.observable_boundary,
+        },
+      }));
+
+      const deviceNodes = data.nodes.map((n) => ({
+        id: n.id,
+        type: n.node_type,
+        position: { x: n.position_x, y: n.position_y },
+        data: {
+          label: n.label,
+          vendor: n.vendor,
+          management_ip: n.management_ip,
+          role: n.role,
+          zone: n.zone,
+          observable: n.observable,
+        },
+        ...(n.site_id ? { parentNode: n.site_id, extent: 'parent' as const } : {}),
+      }));
+
+      const rfEdges = data.edges.map((e) => ({
+        id: e.id,
+        source: e.source_id,
+        target: e.target_id,
+        type: e.edge_type,
+        data: { vrf: e.vrf, capacity_mbps: e.capacity_mbps },
+      }));
+
+      setGraph([...siteGroupNodes, ...deviceNodes], rfEdges);
+    }).catch(() => {/* backend not ready yet, start with empty canvas */});
+  }, [setGraph]);
 
   // ── Drag & drop from palette ──────────────────────────────────────────────
 
@@ -177,25 +134,42 @@ const GraphCanvasInternal: React.FC = () => {
         siteGroup: 'Sede',
       };
 
+      // Detect if dropped inside an existing site group
+      const parentSite = type !== 'siteGroup'
+        ? nodes.find((n) => {
+            if (n.type !== 'siteGroup') return false;
+            const w = (n.style?.width as number) ?? 400;
+            const h = (n.style?.height as number) ?? 300;
+            return (
+              position.x >= n.position.x &&
+              position.x <= n.position.x + w &&
+              position.y >= n.position.y &&
+              position.y <= n.position.y + h
+            );
+          })
+        : undefined;
+
       const newNode = {
         id: `${type}-${Date.now()}`,
         type,
-        position,
+        position: parentSite
+          ? { x: position.x - parentSite.position.x, y: position.y - parentSite.position.y }
+          : position,
         data: {
           label: defaultLabels[type] ?? type,
           observable: type !== 'sdwanCPE',
         } as NodeData,
-        // Site groups use extent + style
         ...(type === 'siteGroup'
-          ? {
-              style: { width: 400, height: 300 },
-            }
+          ? { style: { width: 400, height: 300 } }
+          : {}),
+        ...(parentSite
+          ? { parentNode: parentSite.id, extent: 'parent' as const }
           : {}),
       };
 
       addNode(newNode);
     },
-    [screenToFlowPosition, addNode],
+    [screenToFlowPosition, addNode, nodes],
   );
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -205,12 +179,27 @@ const GraphCanvasInternal: React.FC = () => {
     setSaveError(null);
     try {
       const { nodes: rfNodes, edges: rfEdges } = useGraphStore.getState();
+
+      const siteNodes = rfNodes.filter((n) => n.type === 'siteGroup');
+      const regularNodes = rfNodes.filter((n) => n.type !== 'siteGroup');
+
       // Convert ReactFlow nodes/edges to TopologyGraphSchema for the API
       const payload = {
-        sites: [],
-        nodes: rfNodes.map((n) => ({
+        sites: siteNodes.map((n) => ({
           id: n.id,
-          site_id: n.data?.siteId ?? '',
+          name: n.data?.label ?? n.id,
+          role: n.data?.role ?? 'spoke',
+          wan_type: n.data?.wan_type ?? 'mpls_aviat',
+          observable_boundary: n.data?.observable_boundary ?? null,
+          canvas_x: n.position.x,
+          canvas_y: n.position.y,
+          canvas_w: (n.style?.width as number) ?? 400,
+          canvas_h: (n.style?.height as number) ?? 300,
+        })),
+        nodes: regularNodes.map((n) => ({
+          id: n.id,
+          // ReactFlow v11 stores the parent group id in parentNode (runtime property)
+          site_id: (n as any).parentNode ?? n.data?.siteId ?? '',
           label: n.data?.label ?? n.id,
           node_type: n.type ?? 'access_switch',
           vendor: n.data?.vendor ?? 'Cisco',
@@ -289,7 +278,47 @@ const GraphCanvasInternal: React.FC = () => {
             <span className="text-xs text-red-600">{saveError}</span>
           </>
         )}
+
+        <div className="w-px h-5 bg-gray-200" />
+
+        <button
+          onClick={async () => {
+            const data = await exportGraph();
+            setMcpJson(JSON.stringify(data, null, 2));
+          }}
+          className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-emerald-600 transition-colors px-2 py-1 rounded hover:bg-emerald-50"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <path d="M10 12l-2 2 2 2M14 12l2 2-2 2" />
+          </svg>
+          Ver JSON MCP
+        </button>
       </div>
+
+      {/* ── MCP JSON Modal ─────────────────────────────────────────────────── */}
+      {mcpJson && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-[700px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+              <span className="text-sm font-semibold text-gray-800">JSON — Contexto MCP</span>
+              <button
+                onClick={() => setMcpJson(null)}
+                className="text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <pre className="overflow-auto p-4 text-xs text-gray-800 font-mono bg-gray-50 flex-1 rounded-b-xl">
+              {mcpJson}
+            </pre>
+          </div>
+        </div>
+      )}
+
 
       {/* ── ReactFlow canvas ───────────────────────────────────────────────── */}
       <ReactFlow
@@ -334,10 +363,6 @@ const GraphCanvasInternal: React.FC = () => {
   );
 };
 
-// ── Public export (wrapped in provider) ──────────────────────────────────────
+// ── Public export ─────────────────────────────────────────────────────────────
 
-export const GraphCanvas: React.FC = () => (
-  <ReactFlowProvider>
-    <GraphCanvasInternal />
-  </ReactFlowProvider>
-);
+export const GraphCanvas: React.FC = () => <GraphCanvasInternal />;

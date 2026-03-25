@@ -49,6 +49,11 @@ export const SiteGroup: React.FC<NodeProps<NodeData>> = ({ data, selected }) => 
               SD-WAN
             </span>
           )}
+          {wanType === 'aviat_carrier' && (
+            <span className="text-xs font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+              Aviat
+            </span>
+          )}
 
           {/* Node count badge */}
           {nodeCount !== undefined && (

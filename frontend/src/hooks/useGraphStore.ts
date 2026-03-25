@@ -32,7 +32,9 @@ interface GraphState {
 
   // Mutations
   updateNodeData: (id: string, patch: Partial<NodeData>) => void;
+  updateEdge: (id: string, patch: Partial<Pick<Edge, 'type' | 'data'>>) => void;
   deleteNode: (id: string) => void;
+  deleteEdge: (id: string) => void;
   setGraph: (nodes: Node[], edges: Edge[]) => void;
   addNode: (node: Node) => void;
 
@@ -50,8 +52,28 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   // ── ReactFlow change handlers ────────────────────────────────────────────
 
-  onNodesChange: (changes) =>
-    set({ nodes: applyNodeChanges(changes, get().nodes) }),
+  onNodesChange: (changes) => {
+    // When ReactFlow removes a siteGroup (e.g. Delete key), also remove its children
+    const removedIds = changes
+      .filter((c) => c.type === 'remove')
+      .map((c) => c.id);
+    const childIds = removedIds.length
+      ? get().nodes
+          .filter((n) => removedIds.includes((n as any).parentNode))
+          .map((n) => n.id)
+      : [];
+    const allRemovedIds = [...removedIds, ...childIds];
+    const updatedNodes = applyNodeChanges(
+      changes,
+      get().nodes.filter((n) => !childIds.includes(n.id)),
+    );
+    set({
+      nodes: updatedNodes,
+      edges: allRemovedIds.length
+        ? get().edges.filter((e) => !allRemovedIds.includes(e.source) && !allRemovedIds.includes(e.target))
+        : get().edges,
+    });
+  },
 
   onEdgesChange: (changes) =>
     set({ edges: applyEdgeChanges(changes, get().edges) }),
@@ -76,12 +98,40 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       ),
     }),
 
-  deleteNode: (id) =>
+  updateEdge: (id, patch) =>
     set({
-      nodes: get().nodes.filter((n) => n.id !== id),
-      edges: get().edges.filter((e) => e.source !== id && e.target !== id),
-      selectedNodeId: get().selectedNodeId === id ? null : get().selectedNodeId,
+      edges: get().edges.map((e) =>
+        e.id === id ? { ...e, ...patch } : e,
+      ),
     }),
+
+  deleteNode: (id) => {
+    // Also remove children if deleting a siteGroup
+    const childIds = get().nodes
+      .filter((n) => (n as any).parentNode === id)
+      .map((n) => n.id);
+    const allIds = [id, ...childIds];
+
+    // Build remove changes for all IDs (parent + children) so ReactFlow's
+    // internal state stays in sync (required in controlled mode, RF v11).
+    const removeChanges = allIds.map((nodeId) => ({ type: 'remove' as const, id: nodeId }));
+    const updatedNodes = applyNodeChanges(removeChanges, get().nodes);
+
+    set({
+      nodes: updatedNodes,
+      edges: get().edges.filter((e) => !allIds.includes(e.source) && !allIds.includes(e.target)),
+      selectedNodeId: allIds.includes(get().selectedNodeId ?? '') ? null : get().selectedNodeId,
+    });
+  },
+
+  deleteEdge: (id) => {
+    // Use applyEdgeChanges so ReactFlow's internal state stays in sync.
+    const updatedEdges = applyEdgeChanges([{ type: 'remove', id }], get().edges);
+    set({
+      edges: updatedEdges,
+      selectedEdgeId: get().selectedEdgeId === id ? null : get().selectedEdgeId,
+    });
+  },
 
   setGraph: (nodes, edges) => set({ nodes, edges }),
 
