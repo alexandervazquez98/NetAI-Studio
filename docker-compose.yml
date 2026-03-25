@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - netai-network
+
+  backend:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - mcp-server
+    networks:
+      - netai-network
+
+  mcp-server:
+    build: ./mcp-server
+    env_file: .env
+    networks:
+      - netai-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - netai-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - netai-network
+
+networks:
+  netai-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
