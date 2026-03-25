@@ -1,4 +1,5 @@
 import React from 'react';
+import { useReactFlow } from 'reactflow';
 import { useGraphStore } from '../../hooks/useGraphStore';
 import type { NodeData } from '../../types/nodeData';
 
@@ -33,11 +34,94 @@ const inputCls =
   'w-full text-sm border border-gray-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition';
 
 export const PropertiesPanel: React.FC = () => {
-  const { nodes, selectedNodeId, updateNodeData, deleteNode } = useGraphStore();
+  const { nodes, edges, selectedNodeId, selectedEdgeId, updateNodeData, updateEdge, deleteEdge, onNodesChange, onEdgesChange } = useGraphStore();
+
+  const { setNodes } = useReactFlow();
+
+  const handleDeleteNode = (nodeId: string) => {
+    const childIds = nodes
+      .filter((n) => (n as any).parentNode === nodeId)
+      .map((n) => n.id);
+    const allIds = [nodeId, ...childIds];
+    const remaining = nodes.filter((n) => !allIds.includes(n.id));
+    // Update both Zustand store and ReactFlow internal nodeInternals in the same cycle
+    onNodesChange(allIds.map((id) => ({ type: 'remove' as const, id })));
+    setNodes(remaining);
+  };
 
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId) ?? null
     : null;
+
+  const selectedEdge = selectedEdgeId
+    ? edges.find((e) => e.id === selectedEdgeId) ?? null
+    : null;
+
+  // ── Edge panel ────────────────────────────────────────────────────────────
+
+  if (selectedEdge && !selectedNode) {
+    return (
+      <div className="flex flex-col h-full overflow-y-auto">
+        <div className="mb-4 pb-3 border-b border-gray-100">
+          <h2 className="text-sm font-bold text-gray-800">Propiedades del Enlace</h2>
+          <p className="text-xs text-gray-400 mt-0.5 truncate">{selectedEdge.id}</p>
+        </div>
+
+        <Field label="Tipo de enlace">
+          <select
+            className={inputCls}
+            value={selectedEdge.type ?? 'fiber'}
+            aria-label="Tipo de enlace"
+            onChange={(e) => updateEdge(selectedEdge.id, { type: e.target.value })}
+          >
+            <option value="fiber">Fibra</option>
+            <option value="mpls">MPLS</option>
+            <option value="sdwan">SD-WAN</option>
+            <option value="aviat">Microonda (Aviat)</option>
+          </select>
+        </Field>
+
+        <Field label="Origen">
+          <div className="text-sm bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-600 font-mono truncate">
+            {nodes.find((n) => n.id === selectedEdge.source)?.data?.label ?? selectedEdge.source}
+          </div>
+        </Field>
+
+        <Field label="Destino">
+          <div className="text-sm bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-600 font-mono truncate">
+            {nodes.find((n) => n.id === selectedEdge.target)?.data?.label ?? selectedEdge.target}
+          </div>
+        </Field>
+
+        {selectedEdge.data?.vrf && (
+          <Field label="VRF">
+            <div className="text-sm bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-600 font-mono">
+              {selectedEdge.data.vrf}
+            </div>
+          </Field>
+        )}
+
+        {selectedEdge.data?.capacity_mbps && (
+          <Field label="Capacidad (Mbps)">
+            <div className="text-sm bg-gray-50 border border-gray-200 rounded px-2.5 py-1.5 text-gray-600">
+              {selectedEdge.data.capacity_mbps} Mbps
+            </div>
+          </Field>
+        )}
+
+        <div className="flex-1" />
+
+        <div className="pt-4 border-t border-gray-100 mt-4">
+          <button
+            className="w-full text-sm font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded px-3 py-2 transition-colors"
+            onClick={() => deleteEdge(selectedEdge.id)}
+          >
+            Eliminar enlace
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!selectedNode) {
     return (
@@ -53,7 +137,7 @@ export const PropertiesPanel: React.FC = () => {
           <path d="M9 9h6M9 12h6M9 15h4" />
         </svg>
         <p className="text-sm text-center leading-snug">
-          Selecciona un nodo para ver sus propiedades
+          Selecciona un nodo o enlace para ver sus propiedades
         </p>
       </div>
     );
@@ -206,11 +290,13 @@ export const PropertiesPanel: React.FC = () => {
           <select
             className={inputCls}
             value={data.wan_type ?? ''}
-            onChange={(e) => patch('wan_type', e.target.value as 'MPLS' | 'SD-WAN')}
+            aria-label="Tipo WAN"
+            onChange={(e) => patch('wan_type', e.target.value as NodeData['wan_type'])}
           >
             <option value="">— Seleccionar —</option>
             <option value="MPLS">MPLS</option>
             <option value="SD-WAN">SD-WAN</option>
+            <option value="aviat_carrier">Aviat Carrier</option>
           </select>
         </Field>
       )}
@@ -222,9 +308,9 @@ export const PropertiesPanel: React.FC = () => {
       <div className="pt-4 border-t border-gray-100 mt-4">
         <button
           className="w-full text-sm font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded px-3 py-2 transition-colors"
-          onClick={() => deleteNode(selectedNode.id)}
+          onClick={() => handleDeleteNode(selectedNode.id)}
         >
-          Eliminar nodo
+          {nodeType === 'siteGroup' ? 'Eliminar sede y sus equipos' : 'Eliminar nodo'}
         </button>
       </div>
     </div>

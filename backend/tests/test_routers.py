@@ -18,14 +18,17 @@ from unittest.mock import AsyncMock, patch, MagicMock
 def _make_db_mock():
     """Return a fake backend.database module that doesn't create a real engine."""
     import types
+    from sqlalchemy.orm import declarative_base
 
     mod = types.ModuleType("backend.database")
-    mod.Base = MagicMock()
+    mod.Base = declarative_base()
     mod.AsyncSessionLocal = MagicMock()
     mod.async_engine = MagicMock()
     mod.init_db = AsyncMock()
 
     async def _get_db():
+        from uuid import uuid4
+
         session = AsyncMock()
         session.execute = AsyncMock(
             return_value=MagicMock(
@@ -37,7 +40,15 @@ def _make_db_mock():
         )
         session.add = MagicMock()
         session.commit = AsyncMock()
-        session.refresh = AsyncMock()
+
+        async def _auto_refresh(obj):
+            # Populate SQLAlchemy column defaults that only run at flush time
+            if hasattr(obj, "id") and obj.id is None:
+                obj.id = str(uuid4())
+            if hasattr(obj, "status") and obj.status is None:
+                obj.status = "running"
+
+        session.refresh = _auto_refresh
         session.get = AsyncMock(return_value=None)
         session.delete = AsyncMock()
         session.rollback = AsyncMock()
@@ -53,6 +64,91 @@ if "backend.database" not in sys.modules:
 else:
     # Already imported (e.g. another test file loaded it first) — patch init_db
     sys.modules["backend.database"].init_db = AsyncMock()
+
+
+def _make_config_mock():
+    """Return a fake backend.config module so pydantic_settings isn't required."""
+    import types
+
+    mod = types.ModuleType("backend.config")
+
+    class _FakeSettings:
+        anthropic_api_key: str = ""
+        cors_origins: str = "http://localhost:3000"
+
+        def __getattr__(self, item):
+            return ""
+
+    mod.settings = _FakeSettings()
+    mod.Settings = _FakeSettings
+    return mod
+
+
+def _make_main_stub():
+    """Return a minimal backend.main stub so patch() can resolve the module."""
+    import types
+    from contextlib import asynccontextmanager
+
+    mod = types.ModuleType("backend.main")
+
+    @asynccontextmanager
+    async def lifespan(app):  # noqa: D401
+        yield
+
+    mod.lifespan = lifespan
+    mod.init_db = AsyncMock()
+    mod.app = None  # will be replaced by importlib.reload inside the fixture
+    return mod
+
+
+if "backend.config" not in sys.modules:
+    sys.modules["backend.config"] = _make_config_mock()
+
+if "backend.main" not in sys.modules:
+    sys.modules["backend.main"] = _make_main_stub()
+
+
+def _make_anthropic_mock():
+    """Return a fake anthropic module so routers can be imported without the SDK."""
+    import types
+
+    mod = types.ModuleType("anthropic")
+    mod.AsyncAnthropic = MagicMock()
+    mod.APIStatusError = Exception
+    return mod
+
+
+def _make_redis_mock():
+    """Return a fake redis module so redis_client can be imported without the package."""
+    import types
+
+    mod = types.ModuleType("redis")
+    asyncio_mod = types.ModuleType("redis.asyncio")
+    asyncio_mod.ConnectionPool = MagicMock()
+    asyncio_mod.Redis = MagicMock()
+    mod.asyncio = asyncio_mod
+    sys.modules["redis.asyncio"] = asyncio_mod
+    return mod
+
+
+def _make_redis_client_mock():
+    """Return a fake backend.redis_client so websocket router doesn't need real redis."""
+    import types
+
+    mod = types.ModuleType("backend.redis_client")
+    mod.subscribe_channel = AsyncMock()
+    mod.publish_message = AsyncMock()
+    return mod
+
+
+if "anthropic" not in sys.modules:
+    sys.modules["anthropic"] = _make_anthropic_mock()
+
+if "redis" not in sys.modules:
+    sys.modules["redis"] = _make_redis_mock()
+
+if "backend.redis_client" not in sys.modules:
+    sys.modules["backend.redis_client"] = _make_redis_client_mock()
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -149,6 +245,122 @@ class TestGraphRouter:
     async def test_export_endpoint_exists(self, client):
         response = await client.get("/api/graph/export")
         assert response.status_code != 404
+
+
+# ── Node CRUD ──────────────────────────────────────────────────────────────────
+
+
+class TestNodeEndpoints:
+    @pytest.mark.asyncio
+    async def test_get_node_returns_404_when_not_found(self, client):
+        with patch("backend.routers.graph.get_db") as mock_get_db:
+            mock_session = AsyncMock()
+            mock_session.get = AsyncMock(return_value=None)
+
+            async def _gen():
+                yield mock_session
+
+            mock_get_db.return_value = _gen()
+            response = await client.get("/api/graph/nodes/nonexistent")
+        assert response.status_code == 404
+        assert "nonexistent" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_get_node_returns_node_when_found(self, client):
+        from backend.models.graph import NetworkNode
+        from backend.database import get_db
+
+        node = NetworkNode(
+            id="n1",
+            site_id="s1",
+            node_type="router",
+            label="R1",
+            vendor="Cisco",
+            position_x=0.0,
+            position_y=0.0,
+            observable=True,
+            wan_facing=False,
+            meta={},
+        )
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=node)
+
+        async def _override():
+            yield mock_session
+
+        app = client._transport.app
+        app.dependency_overrides[get_db] = _override
+        try:
+            response = await client.get("/api/graph/nodes/n1")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "n1"
+        assert data["node_type"] == "router"
+
+    @pytest.mark.asyncio
+    async def test_put_node_returns_404_when_not_found(self, client):
+        with patch("backend.routers.graph.get_db") as mock_get_db:
+            mock_session = AsyncMock()
+            mock_session.get = AsyncMock(return_value=None)
+
+            async def _gen():
+                yield mock_session
+
+            mock_get_db.return_value = _gen()
+            payload = {
+                "site_id": "s1",
+                "label": "R1",
+                "node_type": "router",
+            }
+            response = await client.put("/api/graph/nodes/nonexistent", json=payload)
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_node_returns_404_when_not_found(self, client):
+        with patch("backend.routers.graph.get_db") as mock_get_db:
+            mock_session = AsyncMock()
+            mock_session.get = AsyncMock(return_value=None)
+
+            async def _gen():
+                yield mock_session
+
+            mock_get_db.return_value = _gen()
+            response = await client.delete("/api/graph/nodes/nonexistent")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_node_returns_204_when_found(self, client):
+        from backend.models.graph import NetworkNode
+        from backend.database import get_db
+
+        node = NetworkNode(
+            id="n1",
+            site_id="s1",
+            node_type="router",
+            label="R1",
+            position_x=0.0,
+            position_y=0.0,
+            observable=True,
+            wan_facing=False,
+            meta={},
+        )
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=node)
+        mock_session.delete = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        async def _override():
+            yield mock_session
+
+        app = client._transport.app
+        app.dependency_overrides[get_db] = _override
+        try:
+            response = await client.delete("/api/graph/nodes/n1")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+        assert response.status_code == 204
 
 
 # ── Analysis ───────────────────────────────────────────────────────────────────

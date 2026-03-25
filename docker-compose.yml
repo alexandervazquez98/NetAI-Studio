@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   frontend:
     build: ./frontend
@@ -15,11 +13,14 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "8000:8000"
     env_file: .env
     depends_on:
-      - postgres
-      - redis
-      - mcp-server
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - netai-network
 
@@ -37,6 +38,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - netai-network
 
@@ -44,6 +50,11 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - netai-network
 

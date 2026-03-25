@@ -2,6 +2,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -48,37 +49,56 @@ async def upsert_topology(
     db: AsyncSession = Depends(get_db),
 ):
     """Upsert all sites, nodes, and edges from the payload."""
-    # Sites
-    for site_data in payload.sites:
-        existing = await db.get(Site, site_data.id)
-        if existing:
-            existing.name = site_data.name
-            existing.role = site_data.role
-            existing.wan_type = site_data.wan_type
-            existing.observable_boundary = site_data.observable_boundary
-        else:
-            db.add(Site(**site_data.model_dump(exclude_none=False)))
+    try:
+        # Sites
+        for site_data in payload.sites:
+            existing = await db.get(Site, site_data.id)
+            if existing:
+                existing.name = site_data.name
+                existing.role = site_data.role
+                existing.wan_type = site_data.wan_type
+                existing.observable_boundary = site_data.observable_boundary
+            else:
+                db.add(Site(**site_data.model_dump(exclude_none=False)))
 
-    # Nodes
-    for node_data in payload.nodes:
-        existing = await db.get(NetworkNode, node_data.id)
-        if existing:
-            for field, value in node_data.model_dump(exclude={"id"}).items():
-                setattr(existing, field, value)
-        else:
-            db.add(NetworkNode(**node_data.model_dump()))
+        # Nodes — normalize empty site_id to None
+        for node_data in payload.nodes:
+            node_dict = node_data.model_dump()
+            if not node_dict.get("site_id"):
+                node_dict["site_id"] = None
+            existing = await db.get(NetworkNode, node_dict["id"])
+            if existing:
+                for field, value in node_dict.items():
+                    if field != "id":
+                        setattr(existing, field, value)
+            else:
+                db.add(NetworkNode(**node_dict))
 
-    # Edges
-    for edge_data in payload.edges:
-        existing = await db.get(NetworkEdge, edge_data.id)
-        if existing:
-            for field, value in edge_data.model_dump(exclude={"id"}).items():
-                setattr(existing, field, value)
-        else:
-            db.add(NetworkEdge(**edge_data.model_dump()))
+        # Edges
+        for edge_data in payload.edges:
+            existing = await db.get(NetworkEdge, edge_data.id)
+            if existing:
+                for field, value in edge_data.model_dump(exclude={"id"}).items():
+                    setattr(existing, field, value)
+            else:
+                db.add(NetworkEdge(**edge_data.model_dump()))
 
-    await db.commit()
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error("Topology upsert failed: %s", e)
+        raise HTTPException(status_code=422, detail=str(e.orig))
+
     return await get_topology(db)
+
+
+@router.get("/nodes/{node_id}", response_model=NetworkNodeSchema)
+async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
+    """Return a single node by its primary key."""
+    node = await db.get(NetworkNode, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+    return NetworkNodeSchema.model_validate(node)
 
 
 @router.put("/nodes/{node_id}", response_model=NetworkNodeSchema)

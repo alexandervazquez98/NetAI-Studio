@@ -13,7 +13,7 @@ export interface NodeData {
   vrf?: string;
   site?: string;
   // SiteGroup specific
-  wan_type?: 'MPLS' | 'SD-WAN';
+  wan_type?: 'MPLS' | 'SD-WAN' | 'aviat_carrier';
   collapsed?: boolean;
   nodeCount?: number;
 }

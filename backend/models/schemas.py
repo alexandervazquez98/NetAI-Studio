@@ -17,6 +17,10 @@ class SiteSchema(BaseModel):
     role: str = "spoke"
     wan_type: str = "mpls_aviat"
     observable_boundary: Optional[str] = None
+    canvas_x: float = 0.0
+    canvas_y: float = 0.0
+    canvas_w: float = 400.0
+    canvas_h: float = 300.0
 
     class Config:
         from_attributes = True
@@ -29,7 +33,7 @@ class SiteSchema(BaseModel):
 
 class NetworkNodeSchema(BaseModel):
     id: str = Field(default="")
-    site_id: str
+    site_id: Optional[str] = None
     label: str
     node_type: str
     vendor: str = "Cisco"

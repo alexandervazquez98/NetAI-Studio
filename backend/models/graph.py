@@ -22,6 +22,10 @@ class Site(Base):
     role = Column(String, default="spoke")  # hub | spoke
     wan_type = Column(String, default="mpls_aviat")  # mpls_aviat | sdwan
     observable_boundary = Column(String, nullable=True)
+    canvas_x = Column(Float, default=0.0)
+    canvas_y = Column(Float, default=0.0)
+    canvas_w = Column(Float, default=400.0)
+    canvas_h = Column(Float, default=300.0)
 
     nodes = relationship(
         "NetworkNode", back_populates="site", cascade="all, delete-orphan"
@@ -32,7 +36,7 @@ class NetworkNode(Base):
     __tablename__ = "nodes"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    site_id = Column(String, ForeignKey("sites.id"), nullable=False)
+    site_id = Column(String, ForeignKey("sites.id"), nullable=True)
     label = Column(String, nullable=False)
     # core_internal | core_external | aviat_ctr | sdwan_cpe | access_switch
     node_type = Column(String, nullable=False)
