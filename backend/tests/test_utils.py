@@ -248,3 +248,63 @@ class TestGraphBuilder:
         assert len(result["edges"]) == 1
         assert result["edges"][0]["source"] == "n1"
         assert result["edges"][0]["target"] == "n2"
+
+
+class TestJsonUtils:
+    """Tests for backend.utils.json_utils.extract_json_from_llm_response."""
+
+    def _fn(self):
+        from backend.utils.json_utils import extract_json_from_llm_response
+        return extract_json_from_llm_response
+
+    def test_parses_clean_json(self):
+        fn = self._fn()
+        result = fn('{"summary": "ok", "alerts": [], "suggestions": []}')
+        assert result["summary"] == "ok"
+        assert result["alerts"] == []
+
+    def test_strips_json_fenced_block(self):
+        fn = self._fn()
+        text = '```json\n{"summary": "ok", "alerts": []}\n```'
+        result = fn(text)
+        assert result["summary"] == "ok"
+
+    def test_strips_plain_fenced_block(self):
+        fn = self._fn()
+        text = '```\n{"commands": ["no shutdown"]}\n```'
+        result = fn(text)
+        assert result["commands"] == ["no shutdown"]
+
+    def test_extracts_json_from_free_text(self):
+        fn = self._fn()
+        text = 'Here is the analysis result: {"summary": "all good", "alerts": []} as requested.'
+        result = fn(text)
+        assert result["summary"] == "all good"
+
+    def test_fallback_on_no_json(self):
+        fn = self._fn()
+        result = fn("No hay JSON aquí para nada.")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_fallback_on_empty_string(self):
+        fn = self._fn()
+        result = fn("")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_fallback_never_raises(self):
+        fn = self._fn()
+        # Should never raise, regardless of input
+        for bad_input in ["", "   ", "Not JSON", "{broken", "null", "[]"]:
+            result = fn(bad_input)
+            assert isinstance(result, dict)
+
+    def test_datetime_columns_are_timezone_aware(self):
+        """Verify that model default factories produce timezone-aware datetimes."""
+        from datetime import timezone
+        from backend.models.schemas import LogEntrySchema
+
+        entry = LogEntrySchema(agent="test", message="check tz")
+        assert entry.created_at.tzinfo is not None
+        assert entry.created_at.tzinfo == timezone.utc or entry.created_at.utcoffset() is not None

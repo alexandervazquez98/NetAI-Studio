@@ -30,7 +30,10 @@ def extract_json_from_llm_response(text: str) -> Dict[str, Any]:
 
     # Attempt direct parse
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+        # Valid JSON but not a dict (e.g. null, [], "string") — fall through to error
     except json.JSONDecodeError:
         pass
 
