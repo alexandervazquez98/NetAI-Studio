@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -113,7 +113,7 @@ class LogEntrySchema(BaseModel):
     level: str = "info"
     message: str
     tool_call: Optional[Any] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         from_attributes = True
@@ -150,11 +150,13 @@ class ChatMessageSchema(BaseModel):
 
 class ChatRequestSchema(BaseModel):
     message: str
+    session_id: Optional[str] = None  # If provided, continues an existing session
 
 
 class ChatResponseSchema(BaseModel):
     role: str = "assistant"
     content: str
+    session_id: str  # Always returned — use this for follow-up messages
 
 
 # ---------------------------------------------------------------------------

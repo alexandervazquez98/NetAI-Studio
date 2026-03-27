@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
@@ -11,7 +11,7 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     status = Column(String, default="running")  # running | done | error
     summary = Column(Text, nullable=True)
     alert_count = Column(Integer, default=0)
@@ -50,6 +50,6 @@ class LogEntry(Base):
     level = Column(String, default="info")  # info | warning | error
     message = Column(Text, nullable=False)
     tool_call = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     analysis = relationship("Analysis", back_populates="log_entries")
