@@ -59,7 +59,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       .map((c) => c.id);
     const childIds = removedIds.length
       ? get().nodes
-          .filter((n) => removedIds.includes((n as any).parentNode))
+          .filter((n) => removedIds.includes(n.parentNode ?? ''))
           .map((n) => n.id)
       : [];
     const allRemovedIds = [...removedIds, ...childIds];
@@ -108,7 +108,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   deleteNode: (id) => {
     // Also remove children if deleting a siteGroup
     const childIds = get().nodes
-      .filter((n) => (n as any).parentNode === id)
+      .filter((n) => n.parentNode === id)
       .map((n) => n.id);
     const allIds = [id, ...childIds];
 
