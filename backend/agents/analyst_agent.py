@@ -9,6 +9,7 @@ import anthropic
 
 from backend.config import settings
 from backend.redis_client import publish_message
+from backend.utils.json_utils import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ class AnalystAgent:
         await emit("info", "Received response from Claude, parsing JSON...")
 
         # Parse JSON — Claude may wrap it in markdown code blocks
-        parsed = self._extract_json(raw_text)
+        parsed = extract_json_from_llm_response(raw_text)
 
         await emit(
             "info",
@@ -145,38 +146,3 @@ class AnalystAgent:
 
         return parsed
 
-    @staticmethod
-    def _extract_json(text: str) -> Dict[str, Any]:
-        """
-        Extract and parse JSON from the Claude response.
-        Handles markdown code fences (```json ... ```).
-        Falls back to returning error dict on failure.
-        """
-        # Strip markdown fences if present
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            # Remove first and last fence lines
-            inner_lines = lines[1:-1] if lines[-1].startswith("```") else lines[1:]
-            cleaned = "\n".join(inner_lines)
-
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            # Attempt to locate JSON object within free text
-            start = cleaned.find("{")
-            end = cleaned.rfind("}") + 1
-            if start != -1 and end > start:
-                try:
-                    return json.loads(cleaned[start:end])
-                except json.JSONDecodeError:
-                    pass
-
-        logger.warning("AnalystAgent: Could not parse JSON from Claude response")
-        return {
-            "summary": "Error: Could not parse analyst response.",
-            "alerts": [],
-            "suggestions": [],
-            "limitations": ["Response parsing failed — raw response logged."],
-            "raw_text": text,
-        }
