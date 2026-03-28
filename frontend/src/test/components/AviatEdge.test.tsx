@@ -2,9 +2,9 @@
  * TASK 3.1 RED — AviatEdge component tests
  *
  * Tests:
- * S1: renders SVG path with stroke #d97706, always-visible "Aviat" badge
+ * S1: renders animated overlay path with stroke #d97706 and strokeDasharray "8 4"
  * S2: hover → "Microonda" tooltip visible
- * S3: inline <style> tag with dashMove animation present
+ * S3: inline <style> tag with flowMove keyframes present (via shared helper)
  */
 
 import React from 'react'
@@ -62,13 +62,15 @@ const DEFAULT_PROPS = {
 }
 
 describe('AviatEdge', () => {
-  it('S1: renders base edge with stroke #d97706 and strokeDasharray "8 4"', () => {
-    render(<AviatEdge {...DEFAULT_PROPS} />)
-    const path = screen.getByTestId('base-edge-path')
-    expect(path.getAttribute('stroke')).toBe('#d97706')
-    expect(path.getAttribute('strokeWidth') ?? path.getAttribute('stroke-width')).toBe('2')
+  it('S1: renders animated overlay path with stroke #d97706 and strokeDasharray "8 4"', () => {
+    const { container } = render(<AviatEdge {...DEFAULT_PROPS} />)
+    // The animated overlay <path> carries the actual dark amber color (#d97706),
+    // the BaseEdge uses a lighter base (#fbbf24). Query by class name set by helper.
+    const overlayPath = container.querySelector('.edge-anim-e-aviat-1') as SVGPathElement | null
+    expect(overlayPath).not.toBeNull()
+    expect(overlayPath!.getAttribute('stroke')).toBe('#d97706')
     expect(
-      path.getAttribute('strokeDasharray') ?? path.getAttribute('stroke-dasharray')
+      overlayPath!.getAttribute('strokeDasharray') ?? overlayPath!.getAttribute('stroke-dasharray')
     ).toBe('8 4')
   })
 
@@ -90,10 +92,11 @@ describe('AviatEdge', () => {
     expect(screen.queryByText('Microonda')).toBeNull()
   })
 
-  it('S3: inline <style> tag with dashMove keyframes is present', () => {
+  it('S3: inline <style> tag with flowMove keyframes is present (via shared helper)', () => {
     const { container } = render(<AviatEdge {...DEFAULT_PROPS} />)
     const styleEl = container.querySelector('style')
     expect(styleEl).not.toBeNull()
-    expect(styleEl!.textContent).toContain('dashMove')
+    // The shared buildEdgeAnimation helper generates 'flowMove-{id}' keyframes
+    expect(styleEl!.textContent).toContain('flowMove')
   })
 })

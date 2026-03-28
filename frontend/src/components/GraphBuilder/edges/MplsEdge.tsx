@@ -1,60 +1,33 @@
 import React from 'react';
 import { getBezierPath, EdgeLabelRenderer, BaseEdge } from 'reactflow';
 import type { EdgeProps } from 'reactflow';
+import { buildEdgeAnimation } from './_edgeAnimation';
 
 export const MplsEdge: React.FC<EdgeProps> = ({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  data,
-  markerEnd,
-  style,
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition, data, markerEnd, style,
 }) => {
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  });
-
-  const vrfLabel = data?.vrf ? data.vrf : null;
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const { css } = buildEdgeAnimation({ animId: id, color: '#3b82f6', width: 3, dash: '10 4', duration: '1s' });
+  const vrfLabel = data?.vrf ?? null;
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          stroke: '#3b82f6',
-          strokeWidth: 3,
-          ...style,
-        }}
-      />
+      <style>{css}</style>
+
+      {/* base thick line */}
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd}
+        style={{ stroke: '#93c5fd', strokeWidth: 3, ...style }} />
+
+      {/* animated overlay — brighter blue flowing dots */}
+      <path className={`edge-anim-${id}`} d={edgePath} fill="none"
+        stroke="#2563eb" strokeWidth={3} strokeDasharray="10 4" pointerEvents="none" />
 
       <EdgeLabelRenderer>
-        <div
-          style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: 'none',
-          }}
-          className="flex flex-col items-center gap-0.5"
-        >
-          <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded shadow">
-            MPLS
-          </span>
-          {vrfLabel && (
-            <span className="bg-blue-100 text-blue-800 text-xs font-medium px-1.5 py-0.5 rounded shadow">
-              VRF: {vrfLabel}
-            </span>
-          )}
+        <div style={{ position: 'absolute', transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`, pointerEvents: 'none' }}
+          className="flex flex-col items-center gap-0.5">
+          <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded shadow">MPLS</span>
+          {vrfLabel && <span className="bg-blue-100 text-blue-800 text-xs font-medium px-1.5 py-0.5 rounded shadow">VRF: {vrfLabel}</span>}
         </div>
       </EdgeLabelRenderer>
     </>
