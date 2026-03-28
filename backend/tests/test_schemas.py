@@ -3,7 +3,7 @@ Tests for Pydantic schemas — pure Python, no external services needed.
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.models.schemas import (
     SiteSchema,
@@ -194,7 +194,7 @@ class TestAnalysisSchema:
     def test_valid_analysis(self):
         a = AnalysisSchema(
             id="abc-123",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             status="done",
         )
         assert a.id == "abc-123"
@@ -203,7 +203,7 @@ class TestAnalysisSchema:
     def test_analysis_defaults(self):
         a = AnalysisSchema(
             id="x",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             status="running",
         )
         assert a.alert_count == 0
@@ -214,22 +214,32 @@ class TestAnalysisSchema:
 
 
 class TestChatSchemas:
-    def test_chat_request_schema(self):
+    def test_chat_request_schema_no_session(self):
         req = ChatRequestSchema(message="¿Cómo está la red?")
         assert req.message == "¿Cómo está la red?"
+        assert req.session_id is None
+
+    def test_chat_request_schema_with_session(self):
+        req = ChatRequestSchema(message="Siguiente pregunta", session_id="abc-123")
+        assert req.session_id == "abc-123"
 
     def test_chat_request_requires_message(self):
         with pytest.raises(Exception):  # ValidationError
             ChatRequestSchema()
 
-    def test_chat_response_schema(self):
-        resp = ChatResponseSchema(content="Todo bien.")
+    def test_chat_response_schema_requires_session_id(self):
+        resp = ChatResponseSchema(content="Todo bien.", session_id="abc-123")
         assert resp.content == "Todo bien."
+        assert resp.session_id == "abc-123"
         assert resp.role == "assistant"
 
     def test_chat_response_default_role(self):
-        resp = ChatResponseSchema(content="X")
+        resp = ChatResponseSchema(content="X", session_id="abc-123")
         assert resp.role == "assistant"
+
+    def test_chat_response_missing_session_id_raises(self):
+        with pytest.raises(Exception):  # ValidationError
+            ChatResponseSchema(content="Respuesta sin session_id")
 
 
 class TestRunAnalysisResponseSchema:

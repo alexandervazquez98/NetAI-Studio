@@ -79,7 +79,7 @@ class AnalysisOrchestrator:
             level=level,
             message=message,
             tool_call=tool_call,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(entry)
         await db.flush()

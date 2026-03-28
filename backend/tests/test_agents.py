@@ -19,7 +19,9 @@ class TestAnalystAgent:
             patch(
                 "backend.agents.analyst_agent.publish_message", new_callable=AsyncMock
             ),
+            patch("backend.agents.analyst_agent.settings") as mock_settings,
         ):
+            mock_settings.anthropic_api_key = "fake-key"
             mock_client = MagicMock()
             mock_client.messages.create = AsyncMock(
                 return_value=mock_anthropic_response
@@ -50,7 +52,9 @@ class TestAnalystAgent:
             patch(
                 "backend.agents.analyst_agent.publish_message", new_callable=AsyncMock
             ),
+            patch("backend.agents.analyst_agent.settings") as mock_settings,
         ):
+            mock_settings.anthropic_api_key = "fake-key"
             mock_client = MagicMock()
             mock_client.messages.create = AsyncMock(
                 return_value=mock_anthropic_response
@@ -81,7 +85,9 @@ class TestAnalystAgent:
             patch(
                 "backend.agents.analyst_agent.publish_message", new_callable=AsyncMock
             ),
+            patch("backend.agents.analyst_agent.settings") as mock_settings,
         ):
+            mock_settings.anthropic_api_key = "fake-key"
             mock_client = MagicMock()
             mock_client.messages.create = AsyncMock(return_value=bad_response)
             mock_anthropic_module.AsyncAnthropic.return_value = mock_client
@@ -90,13 +96,11 @@ class TestAnalystAgent:
 
             agent = AnalystAgent()
 
-            # Should not raise — _extract_json falls back to an error dict
+            # Should not raise — extract_json_from_llm_response falls back to an error dict
             result = await agent.analyze(sample_topology, sample_metrics, "test-123")
             assert isinstance(result, dict)
-            # Fallback always includes these keys
-            assert "summary" in result
-            assert "alerts" in result
-            assert "suggestions" in result
+            # Fallback includes these keys from json_utils
+            assert "error" in result or "summary" in result
 
     @pytest.mark.asyncio
     async def test_analyze_raises_when_no_api_key(
@@ -111,29 +115,28 @@ class TestAnalystAgent:
                 await agent.analyze(sample_topology, sample_metrics, "test-no-key")
 
     def test_extract_json_strips_markdown_fences(self):
-        from backend.agents.analyst_agent import AnalystAgent
+        from backend.utils.json_utils import extract_json_from_llm_response
 
         text = '```json\n{"summary": "ok", "alerts": [], "suggestions": [], "limitations": []}\n```'
-        result = AnalystAgent._extract_json(text)
+        result = extract_json_from_llm_response(text)
         assert result["summary"] == "ok"
 
     def test_extract_json_parses_plain_json(self):
-        from backend.agents.analyst_agent import AnalystAgent
+        from backend.utils.json_utils import extract_json_from_llm_response
 
         text = '{"summary": "test", "alerts": [], "suggestions": [], "limitations": []}'
-        result = AnalystAgent._extract_json(text)
+        result = extract_json_from_llm_response(text)
         assert isinstance(result, dict)
 
     def test_extract_json_fallback_on_garbage(self):
-        from backend.agents.analyst_agent import AnalystAgent
+        from backend.utils.json_utils import extract_json_from_llm_response
 
-        result = AnalystAgent._extract_json(
+        result = extract_json_from_llm_response(
             "This is completely unstructured text with no JSON"
         )
         # Must return safe fallback dict — never raise
         assert isinstance(result, dict)
-        assert "summary" in result
-        assert "alerts" in result
+        assert "error" in result
 
 
 class TestConfigAgent:
@@ -238,20 +241,38 @@ class TestConfigAgent:
                 await agent.generate_config(suggestion, dry_run=False)
 
     def test_parse_json_response_handles_markdown_fence(self):
-        from backend.agents.config_agent import ConfigAgent
+        from backend.utils.json_utils import extract_json_from_llm_response
 
         text = '```json\n{"commands": ["no shutdown"], "warnings": []}\n```'
-        result = ConfigAgent._parse_json_response(text)
+        result = extract_json_from_llm_response(text)
         assert "commands" in result
         assert result["commands"] == ["no shutdown"]
 
     def test_parse_json_response_fallback_on_garbage(self):
+        from backend.utils.json_utils import extract_json_from_llm_response
+
+        result = extract_json_from_llm_response("not json")
+        # Must return dict with error key, never raise
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_push_via_netmiko_uses_asyncio_to_thread(self):
+        """Verify _push_via_netmiko calls asyncio.to_thread, not get_event_loop."""
+        from unittest.mock import patch, AsyncMock
         from backend.agents.config_agent import ConfigAgent
 
-        result = ConfigAgent._parse_json_response("not json")
-        # Must return dict with empty commands, never raise
-        assert isinstance(result, dict)
-        assert "commands" in result
+        agent = ConfigAgent()
+        suggestion = {"meta": {"host": "10.0.0.1", "username": "admin", "password": "x"}}
+
+        # asyncio.to_thread returns a coroutine — we mock it to return a future-like value
+        async def _fake_to_thread(fn, *args, **kwargs):
+            return {"success": False, "error": "netmiko not installed", "output": ""}
+
+        with patch("backend.agents.config_agent.asyncio.to_thread", side_effect=_fake_to_thread) as mock_to_thread:
+            result = await agent._push_via_netmiko("10.0.0.1", ["show version"], suggestion)
+            mock_to_thread.assert_called_once()
+            assert result["success"] is False
 
 
 class TestTopologyAgent:

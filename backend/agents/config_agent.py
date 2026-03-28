@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -8,6 +9,7 @@ import anthropic
 
 from backend.config import settings
 from backend.redis_client import publish_message
+from backend.utils.json_utils import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +139,7 @@ class ConfigAgent:
                 messages=[{"role": "user", "content": user_content}],
             )
             raw = response.content[0].text
-            return self._parse_json_response(raw)
+            return extract_json_from_llm_response(raw)
         except anthropic.APIStatusError as exc:
             logger.error("ConfigAgent: Anthropic API error: %s", exc)
             raise
@@ -145,38 +147,11 @@ class ConfigAgent:
             logger.error("ConfigAgent: Unexpected error: %s", exc)
             raise
 
-    @staticmethod
-    def _parse_json_response(text: str) -> Dict[str, Any]:
-        import json
-
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            inner = lines[1:-1] if lines[-1].startswith("```") else lines[1:]
-            cleaned = "\n".join(inner)
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            start = cleaned.find("{")
-            end = cleaned.rfind("}") + 1
-            if start != -1 and end > start:
-                try:
-                    return json.loads(cleaned[start:end])
-                except json.JSONDecodeError:
-                    pass
-        return {
-            "commands": [],
-            "warnings": ["Could not parse Claude response"],
-            "raw": text,
-        }
 
     async def _push_via_netmiko(
         self, target: str, commands: List[str], suggestion: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Push commands to a device using Netmiko (blocking in executor)."""
-        import asyncio
-
-        loop = asyncio.get_event_loop()
+        """Push commands to a device using Netmiko (blocking in thread via asyncio.to_thread)."""
 
         def _sync_push() -> Dict[str, Any]:
             try:
@@ -207,5 +182,5 @@ class ConfigAgent:
             except Exception as exc:
                 return {"success": False, "error": str(exc), "output": ""}
 
-        result = await loop.run_in_executor(None, _sync_push)
+        result = await asyncio.to_thread(_sync_push)
         return result

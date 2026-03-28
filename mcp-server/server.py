@@ -26,5 +26,7 @@ mcp.tool()(get_anomalies)
 mcp.tool()(push_config)
 
 if __name__ == "__main__":
-    logger.info("Starting NetAI MCP server...")
-    mcp.run(transport="stdio")
+    host = os.getenv("MCP_SERVER_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_SERVER_PORT", "8001"))
+    logger.info("Starting NetAI MCP server on %s:%s (streamable_http)...", host, port)
+    mcp.run(transport="streamable_http", host=host, port=port)

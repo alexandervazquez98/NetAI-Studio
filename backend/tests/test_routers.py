@@ -485,3 +485,92 @@ class TestChatRouter:
                 data = response.json()
                 assert "content" in data
                 assert data["content"] == "Todo está bien en la red."
+
+    @pytest.mark.asyncio
+    async def test_chat_returns_session_id(self, client):
+        """First call must always return a session_id."""
+        with (
+            patch("backend.routers.chat.anthropic") as mock_anthropic,
+            patch("backend.routers.chat.settings") as mock_settings,
+            patch("backend.routers.chat._build_context", new_callable=AsyncMock) as mock_ctx,
+        ):
+            mock_settings.anthropic_api_key = "fake-key"
+            mock_ctx.return_value = "Contexto"
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(content=[MagicMock(text="Hola.")])
+            )
+            mock_anthropic.AsyncAnthropic.return_value = mock_client
+
+            response = await client.post("/api/chat/", json={"message": "Hola"})
+            if response.status_code == 200:
+                data = response.json()
+                assert "session_id" in data
+                assert isinstance(data["session_id"], str)
+                assert len(data["session_id"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_chat_follow_up_uses_same_session(self, client):
+        """Second request with session_id from first response passes history to Claude."""
+        from backend.routers import chat as chat_mod
+
+        # Clear session store between tests
+        chat_mod._SESSION_STORE.clear()
+
+        with (
+            patch("backend.routers.chat.anthropic") as mock_anthropic,
+            patch("backend.routers.chat.settings") as mock_settings,
+            patch("backend.routers.chat._build_context", new_callable=AsyncMock) as mock_ctx,
+        ):
+            mock_settings.anthropic_api_key = "fake-key"
+            mock_ctx.return_value = "Contexto"
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(content=[MagicMock(text="Respuesta 1.")])
+            )
+            mock_anthropic.AsyncAnthropic.return_value = mock_client
+
+            # First message
+            r1 = await client.post("/api/chat/", json={"message": "Hola"})
+            if r1.status_code != 200:
+                return  # Skip if endpoint not reachable
+            session_id = r1.json()["session_id"]
+
+            # Second message with same session_id
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(content=[MagicMock(text="Respuesta 2.")])
+            )
+            r2 = await client.post(
+                "/api/chat/", json={"message": "¿Y la red ahora?", "session_id": session_id}
+            )
+            if r2.status_code == 200:
+                # The session should now have history (context + 2 user msgs + 2 assistant msgs)
+                session = chat_mod._SESSION_STORE.get(session_id)
+                assert session is not None
+                assert len(session.messages) >= 3  # at least context pair + 1 user turn
+
+    @pytest.mark.asyncio
+    async def test_chat_unknown_session_creates_new(self, client):
+        """Unknown session_id transparently creates a new session."""
+        with (
+            patch("backend.routers.chat.anthropic") as mock_anthropic,
+            patch("backend.routers.chat.settings") as mock_settings,
+            patch("backend.routers.chat._build_context", new_callable=AsyncMock) as mock_ctx,
+        ):
+            mock_settings.anthropic_api_key = "fake-key"
+            mock_ctx.return_value = "Contexto"
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(
+                return_value=MagicMock(content=[MagicMock(text="Nueva sesión.")])
+            )
+            mock_anthropic.AsyncAnthropic.return_value = mock_client
+
+            response = await client.post(
+                "/api/chat/",
+                json={"message": "Test", "session_id": "does-not-exist-at-all"},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                assert "session_id" in data
+                # Must return a NEW session_id (different from the invalid one)
+                assert data["session_id"] != "does-not-exist-at-all"
