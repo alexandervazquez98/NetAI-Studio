@@ -15,13 +15,18 @@ import { act } from '@testing-library/react'
 import { useGraphStore } from '../../hooks/useGraphStore'
 
 // ── Mock the API module so saveGraph doesn't make real HTTP calls ─────────────
-vi.mock('../../api/graph', () => ({
-  saveGraph: vi.fn().mockResolvedValue(undefined),
-  getGraph: vi.fn().mockResolvedValue({ sites: [], nodes: [], edges: [] }),
-  updateNode: vi.fn().mockResolvedValue(undefined),
-  deleteNode: vi.fn().mockResolvedValue(undefined),
-  exportGraph: vi.fn().mockResolvedValue({}),
-}))
+vi.mock('../../api/graph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/graph')>()
+  return {
+    ...actual,
+    // Keep buildSavePayload real so payload assertions work
+    saveGraph: vi.fn().mockResolvedValue(undefined),
+    getGraph: vi.fn().mockResolvedValue({ sites: [], nodes: [], edges: [] }),
+    updateNode: vi.fn().mockResolvedValue(undefined),
+    deleteNode: vi.fn().mockResolvedValue(undefined),
+    exportGraph: vi.fn().mockResolvedValue({}),
+  }
+})
 
 // ── Mock ReactFlow internals to avoid ResizeObserver / canvas issues ──────────
 vi.mock('reactflow', async (importOriginal) => {

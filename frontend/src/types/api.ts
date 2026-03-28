@@ -3,6 +3,11 @@ export interface SiteSchema {
   name: string;
   role: string;
   wan_type: string;
+  observable_boundary: string | null;
+  canvas_x: number | null;
+  canvas_y: number | null;
+  canvas_w: number | null;
+  canvas_h: number | null;
 }
 
 export interface NetworkNodeSchema {

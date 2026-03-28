@@ -48,8 +48,34 @@ async def upsert_topology(
     payload: TopologyGraphSchema,
     db: AsyncSession = Depends(get_db),
 ):
-    """Upsert all sites, nodes, and edges from the payload."""
+    """Replace the full topology with the payload (insert/update + delete orphans)."""
     try:
+        incoming_site_ids = {s.id for s in payload.sites}
+        incoming_node_ids = {n.id for n in payload.nodes}
+        incoming_edge_ids = {e.id for e in payload.edges}
+
+        # ── Delete orphans (rows in DB not present in payload) ────────────────
+
+        existing_sites = (await db.execute(select(Site))).scalars().all()
+        for site in existing_sites:
+            if site.id not in incoming_site_ids:
+                await db.delete(site)
+
+        existing_nodes = (await db.execute(select(NetworkNode))).scalars().all()
+        for node in existing_nodes:
+            if node.id not in incoming_node_ids:
+                await db.delete(node)
+
+        existing_edges = (await db.execute(select(NetworkEdge))).scalars().all()
+        for edge in existing_edges:
+            if edge.id not in incoming_edge_ids:
+                await db.delete(edge)
+
+        # Flush deletes before upserts to avoid FK constraint violations
+        await db.flush()
+
+        # ── Upsert what remains in the payload ───────────────────────────────
+
         # Sites
         for site_data in payload.sites:
             existing = await db.get(Site, site_data.id)
@@ -58,6 +84,10 @@ async def upsert_topology(
                 existing.role = site_data.role
                 existing.wan_type = site_data.wan_type
                 existing.observable_boundary = site_data.observable_boundary
+                existing.canvas_x = site_data.canvas_x
+                existing.canvas_y = site_data.canvas_y
+                existing.canvas_w = site_data.canvas_w
+                existing.canvas_h = site_data.canvas_h
             else:
                 db.add(Site(**site_data.model_dump(exclude_none=False)))
 

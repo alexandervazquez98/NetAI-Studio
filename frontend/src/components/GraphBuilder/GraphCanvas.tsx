@@ -11,7 +11,7 @@ import type { NodeTypes, EdgeTypes } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import { useGraphStore } from '../../hooks/useGraphStore';
-import { getGraph, saveGraph, exportGraph } from '../../api/graph';
+import { getGraph, saveGraph, exportGraph, buildSavePayload } from '../../api/graph';
 
 import { CoreInternalNode } from './nodes/CoreInternalNode';
 import { CoreExternalNode } from './nodes/CoreExternalNode';
@@ -52,7 +52,7 @@ const edgeTypes: EdgeTypes = {
 
 const GraphCanvasInternal: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, selectNode, selectEdge, setGraph } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, selectNode, selectEdge, setGraph, isDirty, markSaved } =
     useGraphStore();
   const { screenToFlowPosition } = useReactFlow();
 
@@ -179,55 +179,15 @@ const GraphCanvasInternal: React.FC = () => {
     setSaveError(null);
     try {
       const { nodes: rfNodes, edges: rfEdges } = useGraphStore.getState();
-
-      const siteNodes = rfNodes.filter((n) => n.type === 'siteGroup');
-      const regularNodes = rfNodes.filter((n) => n.type !== 'siteGroup');
-
-      // Convert ReactFlow nodes/edges to TopologyGraphSchema for the API
-      const payload = {
-        sites: siteNodes.map((n) => ({
-          id: n.id,
-          name: n.data?.label ?? n.id,
-          role: n.data?.role ?? 'spoke',
-          wan_type: n.data?.wan_type ?? 'mpls_aviat',
-          observable_boundary: n.data?.observable_boundary ?? null,
-          canvas_x: n.position.x,
-          canvas_y: n.position.y,
-          canvas_w: (n.style?.width as number) ?? 400,
-          canvas_h: (n.style?.height as number) ?? 300,
-        })),
-        nodes: regularNodes.map((n) => ({
-          id: n.id,
-          // ReactFlow v11 stores the parent group id in parentNode (runtime property)
-          site_id: (n as any).parentNode ?? n.data?.siteId ?? '',
-          label: n.data?.label ?? n.id,
-          node_type: n.type ?? 'access_switch',
-          vendor: n.data?.vendor ?? 'Cisco',
-          management_ip: n.data?.management_ip ?? null,
-          role: n.data?.role ?? null,
-          zone: n.data?.zone ?? null,
-          observable: n.data?.observable ?? true,
-          position_x: n.position.x,
-          position_y: n.position.y,
-          meta: {},
-        })),
-        edges: rfEdges.map((e) => ({
-          id: e.id,
-          source_id: e.source,
-          target_id: e.target,
-          edge_type: e.type ?? 'fiber',
-          vrf: e.data?.vrf ?? null,
-          capacity_mbps: e.data?.capacity_mbps ?? null,
-        })),
-      };
-      await saveGraph(payload);
+      await saveGraph(buildSavePayload(rfNodes, rfEdges));
+      markSaved();
     } catch (err) {
       setSaveError('Error al guardar. Revisa la conexión con el servidor.');
       console.error(err);
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [markSaved]);
 
   // ── Validate ─────────────────────────────────────────────────────────────
 
@@ -236,6 +196,18 @@ const GraphCanvasInternal: React.FC = () => {
     const results = runValidation(n, e);
     setValidationResults(results);
   }, []);
+
+  // ── Dirty state — warn on unload ──────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
 
   return (
     <div className="relative w-full h-full" ref={reactFlowWrapper}>
@@ -259,6 +231,12 @@ const GraphCanvasInternal: React.FC = () => {
           )}
           Guardar
         </button>
+
+        {isDirty && (
+          <span className="text-xs font-medium text-amber-500 flex items-center gap-1" title="Hay cambios sin guardar">
+            ● sin guardar
+          </span>
+        )}
 
         <div className="w-px h-5 bg-gray-200" />
 

@@ -7,12 +7,20 @@
  * S6: siteGroup panel shows aviat_carrier in the wan_type select
  * S7: clicking "Eliminar nodo" calls deleteNode with the node id
  * S8: clicking "Eliminar sede y sus equipos" calls deleteNode with the site group id
+ * S9: clicking "Eliminar nodo" calls saveGraph (auto-save)
+ * S10: clicking "Eliminar sede..." calls saveGraph (auto-save)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { act } from '@testing-library/react'
 import { useGraphStore } from '../../hooks/useGraphStore'
+
+const mockSaveGraph = vi.fn().mockResolvedValue(undefined)
+vi.mock('../../api/graph', () => ({
+  saveGraph: (...args: unknown[]) => mockSaveGraph(...args),
+  buildSavePayload: vi.fn().mockReturnValue({ sites: [], nodes: [], edges: [] }),
+}))
 
 // ── Minimal reactflow mock ────────────────────────────────────────────────────
 vi.mock('reactflow', async (importOriginal) => {
@@ -114,7 +122,32 @@ const REGULAR_NODE = {
 }
 
 describe('PropertiesPanel delete', () => {
-  it('S7: clicking "Eliminar nodo" calls deleteNode with the node id', () => {
+  it('S7: clicking "Eliminar nodo" opens confirmation modal, then deleteNode is called on confirm', async () => {
+    const deleteNodeSpy = vi.fn()
+    act(() => {
+      useGraphStore.setState({
+        nodes: [REGULAR_NODE as any],
+        edges: [],
+        selectedNodeId: 'n1',
+        selectedEdgeId: null,
+        deleteNode: deleteNodeSpy,
+        markSaved: vi.fn(),
+      } as any)
+    })
+
+    render(<PropertiesPanel />)
+    // First click opens the modal — deleteNode NOT called yet
+    const btn = screen.getByRole('button', { name: /eliminar nodo/i })
+    fireEvent.click(btn)
+    expect(deleteNodeSpy).not.toHaveBeenCalled()
+
+    // Modal appears with confirm button
+    const confirmBtn = await screen.findByRole('button', { name: /sí, eliminar/i })
+    fireEvent.click(confirmBtn)
+    await waitFor(() => expect(deleteNodeSpy).toHaveBeenCalledWith('n1'))
+  })
+
+  it('S7b: clicking "Cancelar" in modal does NOT call deleteNode', async () => {
     const deleteNodeSpy = vi.fn()
     act(() => {
       useGraphStore.setState({
@@ -127,12 +160,13 @@ describe('PropertiesPanel delete', () => {
     })
 
     render(<PropertiesPanel />)
-    const btn = screen.getByRole('button', { name: /eliminar nodo/i })
-    fireEvent.click(btn)
-    expect(deleteNodeSpy).toHaveBeenCalledWith('n1')
+    fireEvent.click(screen.getByRole('button', { name: /eliminar nodo/i }))
+    const cancelBtn = await screen.findByRole('button', { name: /cancelar/i })
+    fireEvent.click(cancelBtn)
+    expect(deleteNodeSpy).not.toHaveBeenCalled()
   })
 
-  it('S8: clicking "Eliminar sede y sus equipos" calls deleteNode with the site group id', () => {
+  it('S8: clicking "Eliminar sede..." opens modal, confirm calls deleteNode with site id', async () => {
     const deleteNodeSpy = vi.fn()
     act(() => {
       useGraphStore.setState({
@@ -141,12 +175,57 @@ describe('PropertiesPanel delete', () => {
         selectedNodeId: 'site-1',
         selectedEdgeId: null,
         deleteNode: deleteNodeSpy,
+        markSaved: vi.fn(),
       } as any)
     })
 
     render(<PropertiesPanel />)
-    const btn = screen.getByRole('button', { name: /eliminar sede/i })
-    fireEvent.click(btn)
-    expect(deleteNodeSpy).toHaveBeenCalledWith('site-1')
+    fireEvent.click(screen.getByRole('button', { name: /eliminar sede/i }))
+    expect(deleteNodeSpy).not.toHaveBeenCalled()
+
+    const confirmBtn = await screen.findByRole('button', { name: /sí, eliminar/i })
+    fireEvent.click(confirmBtn)
+    await waitFor(() => expect(deleteNodeSpy).toHaveBeenCalledWith('site-1'))
+  })
+})
+
+describe('PropertiesPanel auto-save on delete', () => {
+  beforeEach(() => {
+    mockSaveGraph.mockClear()
+    useGraphStore.setState({
+      nodes: [], edges: [],
+      selectedNodeId: null, selectedEdgeId: null,
+      isDirty: false,
+    } as any)
+  })
+
+  it('S9: confirming "Eliminar nodo" calls saveGraph automatically', async () => {
+    const NODE = { id: 'n1', type: 'coreInternal', position: { x: 0, y: 0 }, data: { label: 'Core INT' } }
+    act(() => {
+      useGraphStore.setState({
+        nodes: [NODE as any], edges: [],
+        selectedNodeId: 'n1', selectedEdgeId: null,
+      } as any)
+    })
+    render(<PropertiesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: /eliminar nodo/i }))
+    const confirmBtn = await screen.findByRole('button', { name: /sí, eliminar/i })
+    fireEvent.click(confirmBtn)
+    await waitFor(() => expect(mockSaveGraph).toHaveBeenCalledTimes(1))
+  })
+
+  it('S10: confirming "Eliminar sede..." calls saveGraph automatically', async () => {
+    const SITE = { id: 'site-1', type: 'siteGroup', position: { x: 0, y: 0 }, data: { label: 'Sede', wan_type: 'mpls' } }
+    act(() => {
+      useGraphStore.setState({
+        nodes: [SITE as any], edges: [],
+        selectedNodeId: 'site-1', selectedEdgeId: null,
+      } as any)
+    })
+    render(<PropertiesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: /eliminar sede/i }))
+    const confirmBtn = await screen.findByRole('button', { name: /sí, eliminar/i })
+    fireEvent.click(confirmBtn)
+    await waitFor(() => expect(mockSaveGraph).toHaveBeenCalledTimes(1))
   })
 })

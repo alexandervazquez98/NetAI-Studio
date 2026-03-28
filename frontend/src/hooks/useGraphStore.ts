@@ -21,6 +21,9 @@ interface GraphState {
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
 
+  // Dirty state — true when there are unsaved mutations
+  isDirty: boolean;
+
   // ReactFlow change handlers
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
@@ -38,6 +41,9 @@ interface GraphState {
   setGraph: (nodes: Node[], edges: Edge[]) => void;
   addNode: (node: Node) => void;
 
+  // Persistence
+  markSaved: () => void;
+
   // Legacy helpers kept for backward compatibility
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
@@ -49,6 +55,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
   selectedEdgeId: null,
+  isDirty: false,
 
   // ── ReactFlow change handlers ────────────────────────────────────────────
 
@@ -93,6 +100,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   updateNodeData: (id, patch) =>
     set({
+      isDirty: true,
       nodes: get().nodes.map((n) =>
         n.id === id ? { ...n, data: { ...n.data, ...patch } } : n,
       ),
@@ -100,6 +108,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   updateEdge: (id, patch) =>
     set({
+      isDirty: true,
       edges: get().edges.map((e) =>
         e.id === id ? { ...e, ...patch } : e,
       ),
@@ -118,6 +127,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const updatedNodes = applyNodeChanges(removeChanges, get().nodes);
 
     set({
+      isDirty: true,
       nodes: updatedNodes,
       edges: get().edges.filter((e) => !allIds.includes(e.source) && !allIds.includes(e.target)),
       selectedNodeId: allIds.includes(get().selectedNodeId ?? '') ? null : get().selectedNodeId,
@@ -128,6 +138,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     // Use applyEdgeChanges so ReactFlow's internal state stays in sync.
     const updatedEdges = applyEdgeChanges([{ type: 'remove', id }], get().edges);
     set({
+      isDirty: true,
       edges: updatedEdges,
       selectedEdgeId: get().selectedEdgeId === id ? null : get().selectedEdgeId,
     });
@@ -135,7 +146,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   setGraph: (nodes, edges) => set({ nodes, edges }),
 
-  addNode: (node) => set({ nodes: [...get().nodes, node] }),
+  addNode: (node) => set({ isDirty: true, nodes: [...get().nodes, node] }),
+
+  markSaved: () => set({ isDirty: false }),
 
   // ── Legacy helpers ────────────────────────────────────────────────────────
 

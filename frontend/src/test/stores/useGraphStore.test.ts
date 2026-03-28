@@ -4,7 +4,7 @@ import { useGraphStore } from '../../hooks/useGraphStore'
 
 describe('useGraphStore', () => {
   beforeEach(() => {
-    useGraphStore.setState({ nodes: [], edges: [], selectedNodeId: null, selectedEdgeId: null })
+    useGraphStore.setState({ nodes: [], edges: [], selectedNodeId: null, selectedEdgeId: null, isDirty: false })
   })
 
   it('addNode adds a node to the store', () => {
@@ -84,5 +84,44 @@ describe('useGraphStore', () => {
       useGraphStore.getState().updateEdge('e1', { type: 'aviat' })
     })
     expect(useGraphStore.getState().edges[1].type).toBe('mpls')
+  })
+
+  // isDirty lifecycle
+  it('S4a: isDirty starts as false', () => {
+    expect(useGraphStore.getState().isDirty).toBe(false)
+  })
+
+  it('S4b: addNode sets isDirty to true', () => {
+    const node = { id: 'n1', type: 'coreInternal', position: { x: 0, y: 0 }, data: {} }
+    act(() => useGraphStore.getState().addNode(node))
+    expect(useGraphStore.getState().isDirty).toBe(true)
+  })
+
+  it('S4b: deleteNode sets isDirty to true', () => {
+    const node = { id: 'n1', type: 'coreInternal', position: { x: 0, y: 0 }, data: {} }
+    act(() => {
+      useGraphStore.setState({ nodes: [node] })
+      useGraphStore.getState().deleteNode('n1')
+    })
+    expect(useGraphStore.getState().isDirty).toBe(true)
+  })
+
+  it('S4b: updateNodeData sets isDirty to true', () => {
+    const node = { id: 'n1', type: 'coreInternal', position: { x: 0, y: 0 }, data: { label: 'A' } }
+    act(() => {
+      useGraphStore.setState({ nodes: [node] })
+      useGraphStore.getState().updateNodeData('n1', { label: 'B' })
+    })
+    expect(useGraphStore.getState().isDirty).toBe(true)
+  })
+
+  it('S4c: markSaved resets isDirty to false', () => {
+    const node = { id: 'n1', type: 'coreInternal', position: { x: 0, y: 0 }, data: {} }
+    act(() => {
+      useGraphStore.getState().addNode(node)
+      expect(useGraphStore.getState().isDirty).toBe(true)
+      useGraphStore.getState().markSaved()
+    })
+    expect(useGraphStore.getState().isDirty).toBe(false)
   })
 })
