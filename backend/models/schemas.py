@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -22,8 +22,7 @@ class SiteSchema(BaseModel):
     canvas_w: float = 400.0
     canvas_h: float = 300.0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +47,7 @@ class NetworkNodeSchema(BaseModel):
     position_x: float = 0.0
     position_y: float = 0.0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +64,7 @@ class NetworkEdgeSchema(BaseModel):
     capacity_mbps: Optional[float] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +94,7 @@ class AlertSchema(BaseModel):
     metric: Optional[str] = None
     threshold: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +111,7 @@ class LogEntrySchema(BaseModel):
     tool_call: Optional[Any] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +129,7 @@ class AnalysisSchema(BaseModel):
     alerts: List[AlertSchema] = Field(default_factory=list)
     log_entries: List[LogEntrySchema] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
