@@ -1,5 +1,4 @@
 import React from 'react';
-import { useReactFlow } from 'reactflow';
 import { useGraphStore } from '../../hooks/useGraphStore';
 import type { NodeData } from '../../types/nodeData';
 
@@ -34,20 +33,7 @@ const inputCls =
   'w-full text-sm border border-gray-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition';
 
 export const PropertiesPanel: React.FC = () => {
-  const { nodes, edges, selectedNodeId, selectedEdgeId, updateNodeData, updateEdge, deleteEdge, onNodesChange, onEdgesChange } = useGraphStore();
-
-  const { setNodes } = useReactFlow();
-
-  const handleDeleteNode = (nodeId: string) => {
-    const childIds = nodes
-      .filter((n) => (n as any).parentNode === nodeId)
-      .map((n) => n.id);
-    const allIds = [nodeId, ...childIds];
-    const remaining = nodes.filter((n) => !allIds.includes(n.id));
-    // Update both Zustand store and ReactFlow internal nodeInternals in the same cycle
-    onNodesChange(allIds.map((id) => ({ type: 'remove' as const, id })));
-    setNodes(remaining);
-  };
+  const { nodes, edges, selectedNodeId, selectedEdgeId, updateNodeData, updateEdge, deleteEdge, deleteNode } = useGraphStore();
 
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId) ?? null
@@ -308,7 +294,7 @@ export const PropertiesPanel: React.FC = () => {
       <div className="pt-4 border-t border-gray-100 mt-4">
         <button
           className="w-full text-sm font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded px-3 py-2 transition-colors"
-          onClick={() => handleDeleteNode(selectedNode.id)}
+          onClick={() => deleteNode(selectedNode.id)}
         >
           {nodeType === 'siteGroup' ? 'Eliminar sede y sus equipos' : 'Eliminar nodo'}
         </button>

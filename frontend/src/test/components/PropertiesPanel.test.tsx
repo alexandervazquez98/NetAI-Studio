@@ -1,13 +1,14 @@
 /**
- * TASK 5.1 RED — PropertiesPanel tests
+ * PropertiesPanel tests
  *
  * Tests:
  * S4: edge panel shows a <select> with 4 options: fiber/mpls/sdwan/aviat
  * S5: changing the edge type select calls updateEdge
  * S6: siteGroup panel shows aviat_carrier in the wan_type select
+ * S7: clicking "Eliminar nodo" calls deleteNode with the node id
+ * S8: clicking "Eliminar sede y sus equipos" calls deleteNode with the site group id
  */
 
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { act } from '@testing-library/react'
@@ -100,5 +101,52 @@ describe('PropertiesPanel siteGroup panel', () => {
     const select = screen.getByRole('combobox', { name: /tipo wan/i })
     const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value)
     expect(options).toContain('aviat_carrier')
+  })
+})
+
+// ── Delete node tests ─────────────────────────────────────────────────────────
+
+const REGULAR_NODE = {
+  id: 'n1',
+  type: 'coreInternal',
+  position: { x: 0, y: 0 },
+  data: { label: 'Core INT', observable: true },
+}
+
+describe('PropertiesPanel delete', () => {
+  it('S7: clicking "Eliminar nodo" calls deleteNode with the node id', () => {
+    const deleteNodeSpy = vi.fn()
+    act(() => {
+      useGraphStore.setState({
+        nodes: [REGULAR_NODE as any],
+        edges: [],
+        selectedNodeId: 'n1',
+        selectedEdgeId: null,
+        deleteNode: deleteNodeSpy,
+      } as any)
+    })
+
+    render(<PropertiesPanel />)
+    const btn = screen.getByRole('button', { name: /eliminar nodo/i })
+    fireEvent.click(btn)
+    expect(deleteNodeSpy).toHaveBeenCalledWith('n1')
+  })
+
+  it('S8: clicking "Eliminar sede y sus equipos" calls deleteNode with the site group id', () => {
+    const deleteNodeSpy = vi.fn()
+    act(() => {
+      useGraphStore.setState({
+        nodes: [SITE_NODE as any],
+        edges: [],
+        selectedNodeId: 'site-1',
+        selectedEdgeId: null,
+        deleteNode: deleteNodeSpy,
+      } as any)
+    })
+
+    render(<PropertiesPanel />)
+    const btn = screen.getByRole('button', { name: /eliminar sede/i })
+    fireEvent.click(btn)
+    expect(deleteNodeSpy).toHaveBeenCalledWith('site-1')
   })
 })
