@@ -34,21 +34,71 @@ body {
   }
 }
 
-/* ── ReactFlow: invisible connection handles ─────────────────────────────────
-   ReactFlow injects its own handle styles that override Tailwind classes.
-   These global overrides ensure no circle/dot appears on nodes.
-   The cursor still changes to crosshair on hover (browser behavior), giving
-   the user a visual cue that they can drag to start a connection.
+/* ── ReactFlow: hover-reveal connection handles ─────────────────────────────
+   Handles are invisible at rest. They smoothly appear when the user hovers
+   over a node, showing exactly where to drag from to create a connection.
+
+   Layer 1 — Base: handle is invisible and scaled down
+   Layer 2 — Node hovered: handles fade in with a smooth scale animation
+   Layer 3 — Handle hovered: glow + scale up — "drag me" affordance
+   Layer 4 — While dragging: other nodes pulse to signal they're valid targets
    --------------------------------------------------------------------------- */
+
+/* Layer 1: invisible at rest */
+.netai-handle,
 .react-flow__handle {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  width: 12px !important;
-  height: 12px !important;
+  opacity: 0 !important;
+  transform: scale(0.3) !important;
+  transition:
+    opacity   0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease !important;
 }
 
-.react-flow__handle:hover {
-  background: transparent !important;
-  transform: none !important;
+/* Layer 2: node hovered — reveal all handles */
+.react-flow__node:hover .netai-handle,
+.react-flow__node:hover .react-flow__handle {
+  opacity: 1 !important;
+  background: #6366f1 !important;       /* indigo-500 */
+  border: 2px solid #fff !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25) !important;
+  transform: scale(1) !important;
 }
+
+/* Layer 3: hovering a specific handle — about to drag */
+.react-flow__node:hover .netai-handle:hover,
+.react-flow__node:hover .react-flow__handle:hover {
+  background: #4f46e5 !important;       /* indigo-600 — darker on hover */
+  border: 2px solid #fff !important;
+  box-shadow:
+    0 0 0 4px rgba(99, 102, 241, 0.35),
+    0 0 18px rgba(99, 102, 241, 0.55) !important;
+  transform: scale(1.6) !important;
+  cursor: crosshair !important;
+  animation: connectPulse 1.2s ease-out infinite !important;
+}
+
+/* Layer 4: while a connection is being dragged, highlight candidate targets */
+.react-flow__node.react-flow__node-connecting .netai-handle,
+.react-flow__node.react-flow__node-connecting .react-flow__handle {
+  opacity: 1 !important;
+  background: #22c55e !important;       /* green-500 — "you can drop here" */
+  border: 2px solid #fff !important;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.3) !important;
+  transform: scale(1.1) !important;
+}
+
+/* Pulse ring animation: "radar ping" effect on the active handle */
+@keyframes connectPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(99,102,241,0.7), 0 0 0 4px rgba(99,102,241,0.35); }
+  60%  { box-shadow: 0 0 0 10px rgba(99,102,241,0),   0 0 0 4px rgba(99,102,241,0.35); }
+  100% { box-shadow: 0 0 0 0   rgba(99,102,241,0),   0 0 0 4px rgba(99,102,241,0.35); }
+}
+
