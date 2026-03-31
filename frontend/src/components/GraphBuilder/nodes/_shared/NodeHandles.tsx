@@ -2,29 +2,25 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 
 interface NodeHandlesProps {
-  /** Tailwind color class for handle background — e.g. "!bg-blue-500" */
-  color: string;
+  /** Unused — kept for API compatibility while handles are invisible */
+  color?: string;
 }
 
 /**
- * 5 connection handles, homologated across ALL device node types.
+ * 5 invisible connection handles, one per cardinal side + one extra right port.
  *
- * Uses type="source" exclusively.
- * With ConnectionMode.Loose active on the canvas, ReactFlow allows
- * source→source connections in any direction — fully bidirectional.
+ * Handles are fully transparent — no circles, no borders — so the node
+ * renders without any visual connection indicators. The user connects nodes
+ * by hovering near the node border (cursor becomes a crosshair) and dragging.
  *
- * Each handle has a stable `id` so serialized edges keep their
- * sourceHandle/targetHandle references when persisted to the backend.
- *
- * Layout:
- *   top    → center-top
- *   bottom → center-bottom
- *   left   → center-left
- *   right  → center-right (at 50% from top)
- *   extra  → right side, at 25% from top (2nd right-side port)
+ * ConnectionMode.Loose on the canvas allows source→source connections in
+ * any direction, so all handles use type="source" for bidirectionality.
  */
-export const NodeHandles: React.FC<NodeHandlesProps> = ({ color }) => {
-  const cls = `!w-3 !h-3 !rounded-full !border-2 !border-white ${color} hover:!scale-125 transition-transform`;
+export const NodeHandles: React.FC<NodeHandlesProps> = () => {
+  // Invisible: transparent bg, no border, no shadow, no scale on hover.
+  // The handle area is still interactable — ReactFlow detects hover and
+  // changes cursor to crosshair so the user knows they can drag a connection.
+  const cls = '!w-3 !h-3 !bg-transparent !border-0 !shadow-none !rounded-full';
 
   return (
     <>

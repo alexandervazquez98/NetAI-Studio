@@ -33,3 +33,22 @@ body {
     background-color: #ffffff;
   }
 }
+
+/* ── ReactFlow: invisible connection handles ─────────────────────────────────
+   ReactFlow injects its own handle styles that override Tailwind classes.
+   These global overrides ensure no circle/dot appears on nodes.
+   The cursor still changes to crosshair on hover (browser behavior), giving
+   the user a visual cue that they can drag to start a connection.
+   --------------------------------------------------------------------------- */
+.react-flow__handle {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.react-flow__handle:hover {
+  background: transparent !important;
+  transform: none !important;
+}
