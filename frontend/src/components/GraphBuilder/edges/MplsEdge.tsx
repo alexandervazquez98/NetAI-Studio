@@ -1,13 +1,21 @@
 import React from 'react';
-import { getBezierPath, EdgeLabelRenderer, BaseEdge } from 'reactflow';
+import { getBezierPath, EdgeLabelRenderer, BaseEdge, useStore } from 'reactflow';
 import type { EdgeProps } from 'reactflow';
 import { buildEdgeAnimation } from './_edgeAnimation';
+import { getFloatingEdgeParams } from './_floatingEdge';
 
-export const MplsEdge: React.FC<EdgeProps> = ({
-  id, sourceX, sourceY, targetX, targetY,
-  sourcePosition, targetPosition, data, markerEnd, style,
-}) => {
-  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+export const MplsEdge: React.FC<EdgeProps> = ({ id, source, target, data, markerEnd, style }) => {
+  const sourceNode = useStore((s) => s.nodeInternals.get(source));
+  const targetNode = useStore((s) => s.nodeInternals.get(target));
+
+  if (!sourceNode || !targetNode) return null;
+
+  const { sx, sy, tx, ty, sourcePos, targetPos } = getFloatingEdgeParams(sourceNode, targetNode);
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX: sx, sourceY: sy, sourcePosition: sourcePos,
+    targetX: tx, targetY: ty, targetPosition: targetPos,
+  });
+
   const { css } = buildEdgeAnimation({ animId: id, color: '#3b82f6', width: 3, dash: '10 4', duration: '1s' });
   const vrfLabel = data?.vrf ?? null;
 

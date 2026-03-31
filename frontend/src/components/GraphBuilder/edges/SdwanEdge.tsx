@@ -1,12 +1,19 @@
 import React from 'react';
-import { getStraightPath, EdgeLabelRenderer, BaseEdge } from 'reactflow';
+import { getStraightPath, EdgeLabelRenderer, BaseEdge, useStore } from 'reactflow';
 import type { EdgeProps } from 'reactflow';
 import { buildEdgeAnimation } from './_edgeAnimation';
+import { getFloatingEdgeParams } from './_floatingEdge';
 
-export const SdwanEdge: React.FC<EdgeProps> = ({
-  id, sourceX, sourceY, targetX, targetY, markerEnd, style,
-}) => {
-  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
+export const SdwanEdge: React.FC<EdgeProps> = ({ id, source, target, markerEnd, style }) => {
+  const sourceNode = useStore((s) => s.nodeInternals.get(source));
+  const targetNode = useStore((s) => s.nodeInternals.get(target));
+
+  if (!sourceNode || !targetNode) return null;
+
+  // SD-WAN uses straight lines — still floating so they attach to correct border
+  const { sx, sy, tx, ty } = getFloatingEdgeParams(sourceNode, targetNode);
+  const [edgePath, labelX, labelY] = getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty });
+
   const { css } = buildEdgeAnimation({ animId: id, color: '#f59e0b', width: 2, dash: '5 5', duration: '0.9s' });
 
   return (
