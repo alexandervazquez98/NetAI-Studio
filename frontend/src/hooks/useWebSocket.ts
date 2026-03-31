@@ -3,7 +3,13 @@ import { useAgentStore } from './useAgentStore';
 import { getAnalysis } from '../api/analysis';
 import type { LogEntry, AgentStatus } from '../types/agent';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+// WebSocket URL — derived from current host so it works on any deployment.
+// Automatically uses wss:// when the page is served over https.
+// Override with VITE_WS_URL if the backend WS runs on a different host/port.
+const _wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL =
+  import.meta.env.VITE_WS_URL || `${_wsProto}://${window.location.hostname}:8000`;
+
 
 export const useWebSocket = (analysisId: string | null) => {
   const wsRef = useRef<WebSocket | null>(null);
