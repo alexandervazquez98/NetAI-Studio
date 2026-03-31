@@ -2,7 +2,7 @@
 Tests for MCP server tools with all HTTP calls mocked.
 
 No real network calls or Docker services needed.
-The mcp-server/ directory is added to sys.path for imports.
+The mcp-server root is the working directory, so 'from tools.xxx import ...' works directly.
 """
 
 import pytest
@@ -10,13 +10,12 @@ import sys
 import os
 from unittest.mock import AsyncMock, patch, MagicMock
 
-# Add mcp-server to the path so 'from tools.xxx import ...' works
-_mcp_server_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "mcp-server",
-)
-if _mcp_server_dir not in sys.path:
-    sys.path.insert(0, _mcp_server_dir)
+# Ensure the mcp-server root is in sys.path so 'tools.*' imports resolve.
+# When running from mcp-server/ this is already the case, but we add it
+# explicitly to support running pytest from the repo root as well.
+_mcp_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _mcp_root not in sys.path:
+    sys.path.insert(0, _mcp_root)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -150,7 +149,6 @@ class TestGetTopologyContext:
         with patch("tools.topology.httpx.AsyncClient", return_value=mock_cm):
             result = await get_topology_context(scope="site", target="HQ")
         assert isinstance(result, dict)
-        # Either 'nodes' key or an error message (site not found by name vs id)
         if "error" not in result:
             assert "nodes" in result
 
@@ -169,7 +167,6 @@ class TestGetTopologyContext:
     async def test_max_nodes_limits_output(self):
         from tools.topology import get_topology_context
 
-        # Build a graph with many nodes
         large_graph = dict(_FLAT_GRAPH)
         large_graph["sites"] = [
             {"id": "BIG", "name": "BIG", "role": "hub", "wan_type": "mpls_aviat"}
@@ -244,7 +241,6 @@ class TestGetWanLinkMetrics:
         mock_cm = _make_http_client_mock(_FLAT_GRAPH)
         with patch("tools.metrics.httpx.AsyncClient", return_value=mock_cm):
             result = await get_wan_link_metrics(site_id="SEDE-F")
-        # signal_dbm must be None for SD-WAN — never invented
         metrics = result.get("metrics") or {}
         if "signal_dbm" in metrics:
             assert metrics["signal_dbm"] is None
@@ -257,7 +253,6 @@ class TestGetWanLinkMetrics:
         with patch("tools.metrics.httpx.AsyncClient", return_value=mock_cm):
             result = await get_wan_link_metrics(site_id="HQ")
         assert isinstance(result, dict)
-        # HQ is mpls_aviat — observable should be True (even if Aviat API is unreachable)
         assert result.get("observable") is True
 
     @pytest.mark.asyncio
@@ -283,7 +278,6 @@ class TestGetWanLinkMetrics:
         mock_cm = _make_http_client_mock(empty_graph)
         with patch("tools.metrics.httpx.AsyncClient", return_value=mock_cm):
             result = await get_wan_link_metrics(site_id="NONEXISTENT")
-        # Must not have invented metric values — should be error or null
         assert isinstance(result, dict)
         for key in ("latency_ms", "signal_dbm", "utilization_pct"):
             if key in result:
@@ -335,7 +329,6 @@ class TestGetAnomalies:
         mock_cm = _make_http_client_mock(_FLAT_GRAPH)
         with patch("tools.anomalies.httpx.AsyncClient", return_value=mock_cm):
             result = await get_anomalies(severity="critical")
-        # Every returned anomaly must be critical
         for anomaly in result:
             assert anomaly.get("severity") == "critical"
 
@@ -378,7 +371,6 @@ class TestGetAnomalies:
 
         with patch("tools.anomalies.httpx.AsyncClient", return_value=mock_cm):
             result = await get_anomalies(severity="all")
-        # Should return a list with an error item, not raise
         assert isinstance(result, list)
         assert len(result) >= 1
         assert "error" in result[0]
@@ -388,7 +380,6 @@ class TestGetAnomalies:
         """MPLS site with a single Aviat CTR → info-level redundancy warning."""
         from tools.anomalies import get_anomalies
 
-        # _FLAT_GRAPH has HQ with one aviat_ctr (CTR-HQ-01)
         mock_cm = _make_http_client_mock(_FLAT_GRAPH)
         with patch("tools.anomalies.httpx.AsyncClient", return_value=mock_cm):
             result = await get_anomalies(severity="all")
@@ -449,7 +440,6 @@ class TestPushConfig:
         """push_config with dry_run=False is blocked when REQUIRE_APPROVAL=true."""
         import tools.config as config_mod
 
-        # Temporarily override REQUIRE_APPROVAL at the module level
         original = config_mod.REQUIRE_APPROVAL
         config_mod.REQUIRE_APPROVAL = True
         try:
@@ -460,9 +450,7 @@ class TestPushConfig:
                 config=["no shutdown"],
                 dry_run=False,
             )
-            # Must not have been applied
             assert result.get("applied") is False
-            # Should contain an error or approval message
             assert result.get("error") is not None
             assert (
                 "approval" in result.get("error", "").lower()

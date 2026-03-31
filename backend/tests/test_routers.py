@@ -6,6 +6,7 @@ The database engine is patched before import to avoid connection attempts.
 """
 
 import pytest
+import pytest_asyncio
 import sys
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -154,7 +155,7 @@ if "backend.redis_client" not in sys.modules:
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client():
     """
     Create a test AsyncClient backed by the FastAPI app.
